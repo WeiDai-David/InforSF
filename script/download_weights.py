@@ -1,13 +1,13 @@
 # script/download_weights.py
 
 import os
-from modelscope import snapshot_download
 from transformers import (
     CLIPModel,
     CLIPProcessor,
     AutoModel,
     AutoTokenizer
 )
+
 
 def dir_has_files(path):
     return os.path.exists(path) and len(os.listdir(path)) > 0
@@ -39,32 +39,44 @@ def main():
         print(f"CLIP saved to: {clip_path}")
 
     # ---------------------------------------------------------
-    # 2) LLaMA-2-7B (ModelScope)
+    # 2) LLaMA-2-7B HF (uses CLI login automatically)
     # ---------------------------------------------------------
-    llama_path = "weights/llama2-7b-ms"
+    llama_path = "weights/llama2-7b-hf"
     if dir_has_files(llama_path):
-        print(f"\n[2/2] LLaMA-2-7B already exists in {llama_path}, skipping download.")
+        print(f"\n[2/2] LLaMA-2-7B HF already exists in {llama_path}, skipping download.")
     else:
-        print("\n[2/2] Downloading LLaMA-2-7B (ModelScope) ...")
+        print("\n[2/2] Downloading LLaMA-2-7B from HuggingFace ...")
         os.makedirs(llama_path, exist_ok=True)
 
-        llama_path = snapshot_download(
-            model_id="modelscope/Llama-2-7b-ms",
-            cache_dir=llama_path,
-            revision="master"
+        model_id = "meta-llama/Llama-2-7b-hf"
+
+        # Auto read token from ~/.huggingface/token (thanks to HF CLI login)
+        AutoTokenizer.from_pretrained(
+            model_id,
+            cache_dir=llama_path
         )
+        AutoModel.from_pretrained(
+            model_id,
+            cache_dir=llama_path
+        )
+
         print(f"LLaMA-2-7B saved to: {llama_path}")
 
     # ---------------------------------------------------------
-    # 3) Verify (only if llama exists)
+    # 3) Verify
     # ---------------------------------------------------------
-    print("\nVerifying LLaMA-2 loading with Transformers...")
+    print("\nVerifying LLaMA-2-7B loading ...")
 
-    tok = AutoTokenizer.from_pretrained("weights/llama2-7b-ms", trust_remote_code=True, local_files_only=True)
-    mdl = AutoModel.from_pretrained("weights/llama2-7b-ms", trust_remote_code=True, local_files_only=True)
+    tok = AutoTokenizer.from_pretrained(
+        llama_path,
+        local_files_only=True
+    )
+    mdl = AutoModel.from_pretrained(
+        llama_path,
+        local_files_only=True
+    )
 
-    print("LLaMA-2-7B verified successfully!")
-
+    print("LLaMA-2-7B HF verified successfully!")
     print("\n=== All weights are ready locally ===")
 
 

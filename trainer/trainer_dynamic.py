@@ -2,79 +2,149 @@
 
 import torch
 import torch.nn as nn
+from tqdm import tqdm
 
-from losses.ratio_loss import ratio_loss_p0_over_pt
-from losses.fisher_utils import estimate_fisher_diagonal
+from losses.ratio_loss import ratio_loss
 from losses.compute_t import compute_t
-from losses.compute_w1 import compute_W1
+from losses.compute_w1 import compute_w1
 
 
-class DynamicTrainer:
-    def __init__(self, model, model_init, feature_extractor, dataloader, cfg):
-        self.model = model
-        self.model_init = model_init
-        self.feature_extractor = feature_extractor
+class InfoSFTrainer:
+    """
+    Trainer for InfoSF:
+        L = CE + w1 * RatioLoss
+    """
+
+    def __init__(
+        self,
+        student_model,
+        teacher_model,
+        fisher_list,
+        fisher_indices,
+        dataloader,
+        optimizer,
+        device="cuda",
+        N1=50,
+    ):
+        self.student = student_model.to(device)
+        self.teacher = teacher_model.to(device)
+
+        self.fisher = fisher_list
+        self.fisher_idx = fisher_indices
+
         self.loader = dataloader
-        self.cfg = cfg
+        self.opt = optimizer
+        self.device = device
+        self.N1 = N1
 
         self.ce = nn.CrossEntropyLoss()
-        self.opt = torch.optim.AdamW(self.model.parameters(), lr=cfg.lr)
 
-        self.theta_init = self._flatten_params(self.model_init)
-        self.W1 = 0.0
 
-        print(">>> A2: Dynamic Fisher + Adaptive Transfer <<<")
+    def train_epoch(self, epoch):
+        self.student.train()
+        self.teacher.eval()   # frozen
 
-    def _flatten_params(self, model):
-        parts = []
-        for p in model.parameters():
-            parts.append(p.detach().clone().flatten())
-        return torch.cat(parts)
+        total_loss = 0
+        total_ce = 0
+        total_ratio = 0
 
-    def train(self):
-        for epoch in range(self.cfg.epochs):
+        for imgs, labels in tqdm(self.loader, desc=f"Epoch {epoch}"):
 
-            print(f"\n===== Epoch {epoch} =====")
-            print(f"W1 = {self.W1:.6f}")
+            imgs = imgs.to(self.device)
+            labels = labels.to(self.device)
 
-            # (1) 用当前 W1 做一轮优化
-            self.model.train()
-            for imgs, labels in self.loader:
-                imgs = imgs.cuda()
-                labels = labels.cuda()
+            # --------------------------------------------------------------
+            # 1) student forward
+            # --------------------------------------------------------------
+            logits_s = self.student(imgs)
 
-                feat = self.feature_extractor(imgs)
+            # --------------------------------------------------------------
+            # 2) teacher forward (with no grad)
+            # --------------------------------------------------------------
+            with torch.no_grad():
+                logits_t = self.teacher(imgs)
 
-                logits_t = self.model(feat)
-                with torch.no_grad():
-                    logits_0 = self.model_init(feat)
+            # --------------------------------------------------------------
+            # 3) CE loss (supervised)
+            # --------------------------------------------------------------
+            ce_loss = self.ce(logits_s, labels)
 
-                L_sup = self.ce(logits_t, labels)
-                L_ratio = ratio_loss_p0_over_pt(logits_t, logits_0, labels)
-                L_total = L_sup + self.W1 * L_ratio
+            # --------------------------------------------------------------
+            # 4) Ratio loss (new version, target-based)
+            # --------------------------------------------------------------
+            rat_loss = ratio_loss(logits_t, logits_s, labels)
 
-                self.opt.zero_grad()
-                L_total.backward()
-                self.opt.step()
+            # --------------------------------------------------------------
+            # 5) Compute Fisher distance t
+            # --------------------------------------------------------------
+            t_value = compute_t(
+                model_student=self.student,
+                model_teacher=self.teacher,
+                fisher_list=self.fisher,
+                indices=self.fisher_idx
+            )
 
-            print(f"L_sup={L_sup.item():.4f}, L_ratio={L_ratio.item():.4f}")
+            # --------------------------------------------------------------
+            # 6) Dynamic w1
+            # --------------------------------------------------------------
+            w1 = compute_w1(t_value, self.N1)
 
-            # (2) 每个 epoch 估计一次 Fisher
-            print("Estimating Fisher (abs grad + EMA + 1%) ...")
-            fisher_diag = estimate_fisher_diagonal(
-                model=self.model,
-                dataloader=self.loader,
-                loss_fn=self.ce,
-                num_samples=self.cfg.fisher_samples,
-                scale=self.cfg.fisher_scale,
-                device="cuda"
-            ).cuda()
+            # --------------------------------------------------------------
+            # 7) Final loss
+            # --------------------------------------------------------------
+            loss = ce_loss + w1 * rat_loss
 
-            # (3) 更新 t
-            theta_now = self._flatten_params(self.model).cuda()
-            t_val = compute_t(theta_now, self.theta_init.cuda(), fisher_diag)
-            print(f"t = {t_val:.6f}")
+            # --------------------------------------------------------------
+            # 8) Backprop
+            # --------------------------------------------------------------
+            self.opt.zero_grad()
+            loss.backward()
+            self.opt.step()
 
-            # (4) 更新 W1
-            self.W1 = compute_W1(t_val, self.cfg.N1)
-            print(f"W1 updated to {self.W1:.6f}")
+            # Logs
+            total_loss  += loss.item()
+            total_ce    += ce_loss.item()
+            total_ratio += rat_loss.item()
+
+        log_dict = {
+            "loss": total_loss / len(self.loader),
+            "ce_loss": total_ce / len(self.loader),
+            "ratio_loss": total_ratio / len(self.loader),
+        }
+
+        return log_dict
+
+
+    def fit(self, epochs):
+
+        log = {"epochs": [], "ce": [], "ratio": [], "t": [], "w1": []}
+
+        for e in range(1, epochs + 1):
+            stats = self.train_epoch(e)
+
+            # append values
+            log["epochs"].append(e)
+            log["ce"].append(stats["ce_loss"])
+            log["ratio"].append(stats["ratio_loss"])
+
+            # compute t and w1 for logging
+            t_value = compute_t(
+                self.student, self.teacher,
+                self.fisher, self.fisher_idx
+            )
+            w1_value = compute_w1(t_value, self.N1)
+
+            log["t"].append(t_value)
+            log["w1"].append(w1_value)
+
+            print(f"[Epoch {e}] loss={stats['loss']:.4f}  "
+                f"ce={stats['ce_loss']:.4f}  "
+                f"ratio={stats['ratio_loss']:.4f}  "
+                f"t={t_value:.6f} w1={w1_value:.6f}")
+
+        # Save JSON
+        import json
+        with open("output/infoSF_log.json", "w") as f:
+            json.dump(log, f, indent=2)
+
+

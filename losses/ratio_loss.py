@@ -1,17 +1,36 @@
 # losses/ratio_loss.py
 
 import torch
-import torch.nn.functional as F
+import torch.nn as nn
 
-def ratio_loss_p0_over_pt(logits_t, logits_0, labels, eps=1e-8):
+def ratio_loss(logits_teacher, logits_student, labels):
     """
-    L2 = log( p0 / pt )
+    InfoSF Ratio Loss:
+    L_ratio = (p0 / pt) * (-log pt)
+    
+    Args:
+        logits_teacher : teacher model outputs (batch, C)
+        logits_student : student model outputs (batch, C)
+        labels         : ground truth labels (batch,)
+
+    Returns:
+        scalar ratio loss
     """
-    p_t = F.softmax(logits_t, dim=-1)
-    p_0 = F.softmax(logits_0, dim=-1)
 
-    pt = p_t[range(len(labels)), labels]
-    p0 = p_0[range(len(labels)), labels]
+    # Convert logits to probability
+    p0 = torch.softmax(logits_teacher, dim=-1)   # teacher prob
+    pt = torch.softmax(logits_student, dim=-1)   # student prob
 
-    ratio = torch.log((p0 + eps) / (pt + eps))
-    return torch.mean(ratio)
+    # gather p0 and pt for the ground truth class y
+    p0_y = p0.gather(1, labels.unsqueeze(1)).squeeze(1)
+    pt_y = pt.gather(1, labels.unsqueeze(1)).squeeze(1)
+
+    # Student CE: -log pt(y)
+    ce_y = -torch.log(pt_y + 1e-12)
+
+    # Probability ratio: p0(y) / pt(y)
+    ratio = p0_y / (pt_y + 1e-12)
+
+    # Final InfoSF ratio loss:
+    loss = ratio * ce_y
+    return torch.mean(loss)
