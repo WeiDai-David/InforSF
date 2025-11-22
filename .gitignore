@@ -1,0 +1,11 @@
+# Ignore dataset directory
+data/
+data/*
+
+# Ignore model weights
+weights/
+weights/*
+
+# VSCode / PyCharm junk
+.vscode/
+.idea/
