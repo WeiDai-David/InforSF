@@ -4,7 +4,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from config import cfg
-from dataset.office_home import OfficeHomeDataset
+from dataset.office_home_split import OfficeHomeSplitDataset
 from models.clip_encoder import ClipImageEncoder
 from models.llama_classifier import LlamaClassifier
 
@@ -17,13 +17,21 @@ def evaluate():
     # -------------------------------------------------------------
     print("[*] Loading OfficeHome validation set...")
 
-    val_ds = OfficeHomeDataset(cfg.DATA_ROOT)
-    val_loader = DataLoader(
-        val_ds,
+    test_ds = OfficeHomeSplitDataset(
+        root=cfg.DATA_ROOT,
+        split="test",
+        domain=cfg.DOMAIN,        # 必须与训练保持一致
+        ratio=cfg.TRAIN_RATIO,     # 必须与训练保持一致
+        seed=cfg.SEED              # 必须一致
+    )
+
+    test_loader = DataLoader(
+        test_ds,
         batch_size=cfg.BATCH_SIZE,
         shuffle=False,
-        num_workers=0
+        num_workers=cfg.NUM_WORKERS
     )
+
 
     # -------------------------------------------------------------
     # 2. Load CLIP image encoder (frozen)
@@ -60,7 +68,7 @@ def evaluate():
     total = 0
 
     with torch.no_grad():
-        for imgs, labels in val_loader:
+        for imgs, labels in test_loader:
 
             imgs = imgs.to(cfg.DEVICE)
             labels = labels.to(cfg.DEVICE)

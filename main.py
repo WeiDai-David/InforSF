@@ -9,11 +9,12 @@ from torch.utils.data import DataLoader
 from config import cfg
 
 # Dataset
-from dataset.office_home import OfficeHomeDataset
+from dataset.office_home_split import OfficeHomeSplitDataset
+
 
 # Models
 from models.clip_encoder import ClipImageEncoder
-from models.llama_classifier import LlamaClassifier
+from models.llama_classifier import LLaMAClassifier
 
 # Fisher
 from losses.fisher_utils import compute_fisher_init
@@ -31,13 +32,21 @@ def main():
     # -----------------------------------------------------
     print("[*] Loading OfficeHome dataset...")
 
-    train_ds = OfficeHomeDataset(cfg.DATA_ROOT)
+    train_ds = OfficeHomeSplitDataset(
+        root=cfg.DATA_ROOT,
+        split="train",
+        domain=cfg.DOMAIN,      # None / "Art" / ["Art","Product"]
+        ratio=cfg.TRAIN_RATIO,   # e.g., 0.8
+        seed=cfg.SEED
+    )
+
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg.BATCH_SIZE,
         shuffle=True,
-        num_workers=0
+        num_workers=cfg.NUM_WORKERS
     )
+
 
     # -----------------------------------------------------
     # 2. Load CLIP image encoder (frozen)
@@ -56,17 +65,17 @@ def main():
     print("[*] Loading LLaMA-2-7B classifier...")
 
     # teacher (frozen)
-    teacher_model = LlamaClassifier(
+    teacher_model = LLaMAClassifier(
         llama_path=cfg.LLAMA_WEIGHTS,
-        clip_dim=cfg.CLIP_FEATURE_DIM,
+        embed_dim=cfg.CLIP_FEATURE_DIM,
         num_classes=cfg.NUM_CLASSES,
         freeze_llama=True
     ).to(cfg.DEVICE)
 
     # student (same structure but trainable classifier head)
-    student_model = LlamaClassifier(
+    student_model = LLaMAClassifier(
         llama_path=cfg.LLAMA_WEIGHTS,
-        clip_dim=cfg.CLIP_FEATURE_DIM,
+        embed_dim=cfg.CLIP_FEATURE_DIM,
         num_classes=cfg.NUM_CLASSES,
         freeze_llama=cfg.FREEZE_LLAMA
     ).to(cfg.DEVICE)

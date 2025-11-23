@@ -9,3 +9,4 @@ weights/*
 # VSCode / PyCharm junk
 .vscode/
 .idea/
+**/__pycache__/

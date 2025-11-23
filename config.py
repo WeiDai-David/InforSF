@@ -12,6 +12,7 @@ class Config:
         # ---------------------------------------------------------
         self.DATA_ROOT = "data/officehome"
 
+
         # weights
         self.CLIP_WEIGHTS = "weights/clip"
         self.LLAMA_WEIGHTS = "weights/llama2-7b-hf"
@@ -21,8 +22,16 @@ class Config:
         os.makedirs(self.OUTPUT_DIR, exist_ok=True)
 
         # ---------------------------------------------------------
+        # Splitting Hyperparameters
+        # ---------------------------------------------------------
+        self.DOMAIN = None          # 或 "Art" / ["Art","Product"]
+        self.TRAIN_RATIO = 0.8
+        self.SEED = 42
+
+        # ---------------------------------------------------------
         # Training Hyperparameters
         # ---------------------------------------------------------
+        self.NUM_WORKERS = 0
         self.BATCH_SIZE = 16
         self.LR = 1e-4
         self.EPOCHS = 5
@@ -63,6 +72,9 @@ class Config:
         print(f"CLIP Weights       : {self.CLIP_WEIGHTS}")
         print(f"LLaMA Weights      : {self.LLAMA_WEIGHTS}")
         print(f"Output Dir         : {self.OUTPUT_DIR}")
+        print(f"Domain(None is All): {self.DOMAIN}")
+        print(f"Train ratio        : {self.TRAIN_RATIO}")
+        print(f"Number of workes   : {self.NUM_WORKERS}")
         print(f"Batch Size         : {self.BATCH_SIZE}")
         print(f"Learning Rate      : {self.LR}")
         print(f"Epochs             : {self.EPOCHS}")
