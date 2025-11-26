@@ -2,3 +2,4 @@ conda create -n InforSF python=3.8.5
 conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
 pip install -U huggingface_hub
 pip install  modelscope
+pip install transformers

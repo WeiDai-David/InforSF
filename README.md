@@ -1,5 +1,7 @@
 # Fisher Information For Source-Free Transfer Learning
 
+Model Mind:CLIP 视觉特征 → 映射到 LLaMA hidden size → LLaMA backbone 作为深度特征变换器 → 分类头
+
 # 📝 Notebook：
 ### 1
 ```bash 
